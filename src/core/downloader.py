@@ -71,6 +71,7 @@ class YouTubeDownloader:
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
+                'noplaylist': True,  # Get info for single video only
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -143,6 +144,7 @@ class YouTubeDownloader:
             'format': 'bestvideo+bestaudio/best',
             'outtmpl': os.path.join(self._output_dir, '%(title)s.%(ext)s'),
             'merge_output_format': 'mp4',
+            'noplaylist': True,  # Download only the video, not the playlist
             'postprocessors': [{
                 'key': 'FFmpegVideoConvertor',
                 'preferedformat': 'mp4'
