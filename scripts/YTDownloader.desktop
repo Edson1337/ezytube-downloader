@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=YouTube Downloader
+Comment=Download videos from YouTube
+Exec=/path/to/yt-downloader
+Icon=youtube
+Terminal=false
+Categories=Network;AudioVideo;
+Keywords=youtube;video;download;
