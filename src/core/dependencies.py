@@ -37,11 +37,10 @@ def find_ffmpeg() -> Optional[str]:
     # Check in app's bin directory first
     bin_dir = get_app_bin_dir()
     
-    if platform.system() == 'Windows':
-        local_ffmpeg = os.path.join(bin_dir, 'ffmpeg.exe')
-    else:
-        local_ffmpeg = os.path.join(bin_dir, 'ffmpeg')
+    is_windows = platform.system() == 'Windows'
+    exe_name = 'ffmpeg.exe' if is_windows else 'ffmpeg'
     
+    local_ffmpeg = os.path.join(bin_dir, exe_name)
     if os.path.exists(local_ffmpeg):
         return local_ffmpeg
     
@@ -49,6 +48,28 @@ def find_ffmpeg() -> Optional[str]:
     ffmpeg_path = shutil.which('ffmpeg')
     if ffmpeg_path:
         return ffmpeg_path
+    
+    # Fallback: check common installation paths
+    # (shutil.which may fail in frozen GUI apps with different PATH)
+    if is_windows:
+        common_paths = [
+            os.path.join(os.environ.get('ProgramFiles', 'C:\\Program Files'), 'ffmpeg', 'bin', 'ffmpeg.exe'),
+            os.path.join(os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)'), 'ffmpeg', 'bin', 'ffmpeg.exe'),
+            'C:\\ffmpeg\\bin\\ffmpeg.exe',
+            os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Programs', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+            os.path.join(os.environ.get('USERPROFILE', ''), 'scoop', 'apps', 'ffmpeg', 'current', 'bin', 'ffmpeg.exe'),
+        ]
+    else:
+        common_paths = [
+            '/usr/bin/ffmpeg',
+            '/usr/local/bin/ffmpeg',
+            '/snap/bin/ffmpeg',
+            '/opt/homebrew/bin/ffmpeg',
+        ]
+    
+    for path in common_paths:
+        if path and os.path.exists(path):
+            return path
     
     return None
 
@@ -60,11 +81,19 @@ def is_ffmpeg_installed() -> bool:
         return False
     
     try:
-        result = subprocess.run(
-            [ffmpeg_path, '-version'],
-            capture_output=True,
-            timeout=5
-        )
+        # GUI-safe subprocess call (for windowed apps without console)
+        kwargs = {
+            'capture_output': True,
+            'timeout': 15,  # Longer timeout for modest hardware
+            'stdin': subprocess.DEVNULL,  # No stdin handle in GUI apps
+        }
+        
+        # On Windows, prevent console window from appearing
+        if platform.system() == 'Windows':
+            CREATE_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+            kwargs['creationflags'] = CREATE_NO_WINDOW
+        
+        result = subprocess.run([ffmpeg_path, '-version'], **kwargs)
         return result.returncode == 0
     except Exception:
         return False
