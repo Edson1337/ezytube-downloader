@@ -223,7 +223,16 @@ class MainWindow:
             command=self._start_download,
             width=25
         )
-        self._download_btn.pack()
+        self._download_btn.pack(side=tk.LEFT)
+        
+        # Cancel button (hidden by default)
+        self._cancel_btn = StyledButton(
+            btn_frame,
+            text="❌ Cancelar",
+            command=self._cancel_download,
+            width=15
+        )
+        # Don't pack yet - will show when download starts
         
         # Progress section (initially hidden)
         self._progress_bar = StyledProgressBar(container)
@@ -399,10 +408,11 @@ class MainWindow:
     
     def _proceed_download(self, url: str):
         """Proceed with the actual download."""
-        # Hide open folder button, show progress bar, and reset
+        # Hide open folder button, show progress bar and cancel button
         self._open_folder_btn.pack_forget()
         self._progress_bar.pack(fill=tk.X, pady=SPACING.PADDING_MEDIUM)
         self._progress_bar.reset()
+        self._cancel_btn.pack(side=tk.LEFT, padx=(SPACING.PADDING_SMALL, 0))
         self._status_label.set_status("Iniciando download...", "info")
         
         # Start download in separate thread
@@ -469,8 +479,9 @@ class MainWindow:
         """Handle download completion."""
         self._download_btn.set_enabled(True)
         
-        # Hide progress bar after download completes
+        # Hide progress bar and cancel button after download completes
         self._progress_bar.pack_forget()
+        self._cancel_btn.pack_forget()
         
         if result.success:
             self._last_downloaded_file = result.file_path
@@ -492,10 +503,24 @@ class MainWindow:
             # Show open folder button
             self._open_folder_btn.pack(pady=SPACING.PADDING_MEDIUM)
         else:
-            self._status_label.set_status(
-                f"❌ Erro: {result.error_message}",
-                "error"
-            )
+            # Check if it was a cancellation (not an error)
+            if result.error_message and "cancelado" in result.error_message.lower():
+                self._status_label.set_status(
+                    "✅ Download cancelado com sucesso!",
+                    "info"
+                )
+            else:
+                self._status_label.set_status(
+                    f"❌ Erro: {result.error_message}",
+                    "error"
+                )
+    
+    def _cancel_download(self):
+        """Cancel the current download."""
+        if self._downloader:
+            self._downloader.cancel()
+            self._status_label.set_status("Cancelando download...", "info")
+            self._cancel_btn.set_enabled(False)
     
     def _open_download_folder(self):
         """Open the folder containing the downloaded file."""

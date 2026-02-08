@@ -81,7 +81,7 @@ class Spacing:
     INPUT_HEIGHT = 40
     
     WINDOW_WIDTH = 900
-    WINDOW_HEIGHT = 600
+    WINDOW_HEIGHT = 650
 
 
 # Create singleton instances

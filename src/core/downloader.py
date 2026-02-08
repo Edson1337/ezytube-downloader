@@ -46,6 +46,8 @@ class YouTubeDownloader:
         self._progress_callback = progress_callback
         self._current_title: Optional[str] = None
         self._noplaylist = True  # Default: download single video only
+        self._cancelled = False
+        self._temp_files: list[str] = []  # Track temp files for cleanup
     
     @property
     def output_dir(self) -> str:
@@ -98,6 +100,48 @@ class YouTubeDownloader:
         if os.path.exists(expected_path):
             return expected_path
         return None
+    
+    def cancel(self) -> None:
+        """Cancel the current download and cleanup temp files."""
+        self._cancelled = True
+        self._cleanup_temp_files()
+    
+    def _cleanup_temp_files(self) -> None:
+        """Remove all temporary files from the download."""
+        import glob
+        
+        # Clean tracked temp files
+        for temp_file in self._temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            except Exception:
+                pass
+        
+        # Also clean any .part files and temp files in output dir
+        if self._current_title:
+            patterns = [
+                os.path.join(self._output_dir, f"{self._current_title}*.part"),
+                os.path.join(self._output_dir, f"{self._current_title}*.ytdl"),
+                os.path.join(self._output_dir, f"{self._current_title}*.temp"),
+                os.path.join(self._output_dir, f"{self._current_title}*.f*.mp4"),
+                os.path.join(self._output_dir, f"{self._current_title}*.f*.webm"),
+                os.path.join(self._output_dir, f"{self._current_title}*.f*.m4a"),
+            ]
+            for pattern in patterns:
+                for f in glob.glob(pattern):
+                    try:
+                        os.remove(f)
+                    except Exception:
+                        pass
+        
+        self._temp_files.clear()
+    
+    def reset(self) -> None:
+        """Reset the downloader state for a new download."""
+        self._cancelled = False
+        self._temp_files.clear()
+        self._current_title = None
     
     def get_available_formats(self, url: str) -> list[VideoFormat]:
         """
@@ -184,14 +228,38 @@ class YouTubeDownloader:
         Returns:
             DownloadResult with success status, file path, and any error message.
         """
+        # Reset state
+        self.reset()
+        
         try:
             os.makedirs(self._output_dir, exist_ok=True)
             
             ydl_opts = self._build_options(format_id, audio_only)
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                # First get info to track title
+                info_dict = ydl.extract_info(url, download=False)
+                self._current_title = info_dict.get('title', 'video')
+                
+                # Check if cancelled before downloading
+                if self._cancelled:
+                    self._cleanup_temp_files()
+                    return DownloadResult(
+                        success=False,
+                        error_message="Download cancelado"
+                    )
+                
+                # Now download
                 info_dict = ydl.extract_info(url, download=True)
                 title = info_dict.get('title', 'video')
+                
+                # Check if cancelled during download
+                if self._cancelled:
+                    self._cleanup_temp_files()
+                    return DownloadResult(
+                        success=False,
+                        error_message="Download cancelado"
+                    )
                 
                 if 'requested_downloads' in info_dict and info_dict['requested_downloads']:
                     file_path = info_dict['requested_downloads'][0].get('filepath')
@@ -209,6 +277,12 @@ class YouTubeDownloader:
                 )
                 
         except Exception as e:
+            if self._cancelled:
+                self._cleanup_temp_files()
+                return DownloadResult(
+                    success=False,
+                    error_message="Download cancelado"
+                )
             return DownloadResult(
                 success=False,
                 error_message=str(e)
