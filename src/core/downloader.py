@@ -320,10 +320,19 @@ class YouTubeDownloader:
             }]
         else:
             opts['merge_output_format'] = 'mp4'
-            opts['postprocessors'] = [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4'
-            }]
+            opts['writethumbnail'] = True
+            opts['postprocessors'] = [
+                {
+                    'key': 'FFmpegVideoConvertor',
+                    'preferedformat': 'mp4'
+                },
+                {
+                    'key': 'EmbedThumbnail',
+                },
+                {
+                    'key': 'FFmpegMetadata',
+                }
+            ]
         
         # Add postprocessor hook for per-video callbacks
         opts['postprocessor_hooks'] = [self._on_postprocess]
