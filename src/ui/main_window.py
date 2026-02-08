@@ -7,15 +7,15 @@ for the YouTube downloader application.
 
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
-from typing import Optional
+from tkinter import filedialog, messagebox, ttk
+from typing import Optional, List
 
 from .styles import COLORS, FONTS, SPACING
 from .widgets import StyledButton, StyledEntry, StyledProgressBar, StatusLabel
 from ..core.downloader import YouTubeDownloader
 from ..core.file_utils import open_file_in_explorer, get_default_download_dir
 from ..core.history_repository import DownloadHistory
-from ..models import AppSettings, DownloadProgress, DownloadResult
+from ..models import AppSettings, DownloadProgress, DownloadResult, VideoFormat
 
 
 class MainWindow:
@@ -45,6 +45,10 @@ class MainWindow:
         self._downloader: Optional[YouTubeDownloader] = None
         self._last_downloaded_file: Optional[str] = None
         self._download_thread: Optional[threading.Thread] = None
+        
+        # Format selection
+        self._available_formats: List[VideoFormat] = []
+        self._selected_format: Optional[VideoFormat] = None
         
         self._setup_window()
         self._create_widgets()
@@ -120,6 +124,12 @@ class MainWindow:
         self._url_entry = StyledEntry(url_frame, placeholder="Paste YouTube URL here...")
         self._url_entry.pack(fill=tk.X, pady=SPACING.PADDING_SMALL)
         
+        # Bind events to fetch formats when URL changes
+        self._url_entry._entry.bind('<FocusOut>', self._on_url_changed)
+        self._url_entry._entry.bind('<Return>', self._on_url_changed)
+        self._url_entry._entry.bind('<KeyRelease>', self._on_url_key_release)
+        self._url_entry._entry.bind('<<Paste>>', lambda e: self._root.after(100, self._on_url_changed))
+        
         # Directory selection section
         dir_frame = tk.Frame(container, bg=COLORS.BG_PRIMARY)
         dir_frame.pack(fill=tk.X, pady=SPACING.PADDING_MEDIUM)
@@ -147,6 +157,61 @@ class MainWindow:
             width=12
         )
         browse_btn.pack(side=tk.RIGHT, padx=(SPACING.PADDING_SMALL, 0))
+        
+        # === Settings section ===
+        settings_frame = tk.Frame(container, bg=COLORS.BG_PRIMARY)
+        settings_frame.pack(fill=tk.X, pady=SPACING.PADDING_MEDIUM)
+        
+        settings_label = tk.Label(
+            settings_frame,
+            text="Configuracoes:",
+            font=(FONTS.FAMILY, FONTS.SIZE_BODY, "bold"),
+            bg=COLORS.BG_PRIMARY,
+            fg=COLORS.TEXT_PRIMARY
+        )
+        settings_label.pack(anchor=tk.W)
+        
+        # Settings row container
+        settings_row = tk.Frame(settings_frame, bg=COLORS.BG_PRIMARY)
+        settings_row.pack(fill=tk.X, pady=SPACING.PADDING_SMALL)
+        
+        # Resolution dropdown
+        resolution_label = tk.Label(
+            settings_row,
+            text="Qualidade:",
+            font=(FONTS.FAMILY, FONTS.SIZE_BODY),
+            bg=COLORS.BG_PRIMARY,
+            fg=COLORS.TEXT_SECONDARY
+        )
+        resolution_label.pack(side=tk.LEFT)
+        
+        self._format_var = tk.StringVar(value="Melhor disponivel")
+        self._format_combo = ttk.Combobox(
+            settings_row,
+            textvariable=self._format_var,
+            state="readonly",
+            width=20
+        )
+        self._format_combo['values'] = ["Melhor disponivel"]
+        self._format_combo.pack(side=tk.LEFT, padx=(SPACING.PADDING_SMALL, SPACING.PADDING_LARGE))
+        self._format_combo.bind('<<ComboboxSelected>>', self._on_format_selected)
+        
+        # Playlist checkbox (disabled by default, enabled when URL has playlist)
+        self._playlist_var = tk.BooleanVar(value=False)
+        self._playlist_check = tk.Checkbutton(
+            settings_row,
+            text="Baixar playlist completa",
+            variable=self._playlist_var,
+            bg=COLORS.BG_PRIMARY,
+            fg=COLORS.TEXT_SECONDARY,
+            disabledforeground=COLORS.TEXT_SECONDARY,
+            selectcolor=COLORS.BG_TERTIARY,
+            activebackground=COLORS.BG_PRIMARY,
+            activeforeground=COLORS.TEXT_PRIMARY,
+            font=(FONTS.FAMILY, FONTS.SIZE_BODY),
+            state=tk.DISABLED
+        )
+        self._playlist_check.pack(side=tk.LEFT)
         
         # Download button
         btn_frame = tk.Frame(container, bg=COLORS.BG_PRIMARY)
@@ -190,6 +255,82 @@ class MainWindow:
             # Save preference
             self._settings.download_dir = directory
             self._settings.save()
+    
+    def _on_format_selected(self, event=None):
+        """Handle format selection from combobox."""
+        selected_text = self._format_var.get()
+        for fmt in self._available_formats:
+            if fmt.resolution == selected_text:
+                self._selected_format = fmt
+                break
+    
+    def _on_url_key_release(self, event=None):
+        """Handle key release in URL entry - debounced fetch."""
+        # Cancel any pending fetch
+        if hasattr(self, '_url_fetch_timer') and self._url_fetch_timer:
+            self._root.after_cancel(self._url_fetch_timer)
+        
+        # Schedule fetch after 500ms of no typing
+        self._url_fetch_timer = self._root.after(500, self._on_url_changed)
+    
+    def _on_url_changed(self, event=None):
+        """Fetch available formats when URL is entered."""
+        url = self._url_entry.get().strip()
+        
+        if not url or not url.startswith(("http://", "https://")):
+            return
+        
+        # Don't refetch if same URL
+        if hasattr(self, '_last_fetched_url') and self._last_fetched_url == url:
+            return
+        
+        self._last_fetched_url = url
+        self._status_label.set_status("Buscando qualidades disponiveis...", "info")
+        
+        # Check if URL is from a playlist
+        is_playlist = 'list=' in url
+        self._update_playlist_checkbox(is_playlist)
+        
+        self._root.update()
+        
+        # Fetch formats in background thread
+        def fetch_formats():
+            try:
+                temp_downloader = YouTubeDownloader(
+                    output_dir=self._output_dir
+                )
+                formats = temp_downloader.get_available_formats(url)
+                self._root.after(0, lambda: self._update_format_combo(formats))
+            except Exception:
+                self._root.after(0, lambda: self._update_format_combo([]))
+        
+        thread = threading.Thread(target=fetch_formats)
+        thread.daemon = True
+        thread.start()
+    
+    def _update_playlist_checkbox(self, is_playlist: bool):
+        """Enable or disable playlist checkbox based on URL type."""
+        if is_playlist:
+            self._playlist_check.config(state=tk.NORMAL)
+            self._playlist_var.set(False)  # Reset to unchecked
+        else:
+            self._playlist_var.set(False)
+            self._playlist_check.config(state=tk.DISABLED)
+    
+    def _update_format_combo(self, formats: List[VideoFormat]):
+        """Update the format combobox with available formats."""
+        self._available_formats = formats
+        
+        if formats:
+            values = [f.resolution for f in formats]
+            self._format_combo['values'] = values
+            self._format_combo.current(0)
+            self._selected_format = formats[0]
+            self._status_label.set_status("Pronto para download", "success")
+        else:
+            self._format_combo['values'] = ["Melhor disponivel"]
+            self._format_combo.current(0)
+            self._status_label.set_status("", "info")
     
     def _start_download(self):
         """Start the download process in a separate thread."""
@@ -271,7 +412,20 @@ class MainWindow:
     
     def _download_video(self, url: str):
         """Download video in separate thread."""
-        result = self._downloader.download(url)
+        # Determine format settings
+        format_id = 'best'
+        audio_only = False
+        
+        if self._selected_format:
+            format_id = self._selected_format.format_id
+            audio_only = not self._selected_format.has_video
+        
+        # Check playlist setting
+        if self._playlist_var.get():
+            # Override noplaylist in downloader
+            self._downloader._noplaylist = False
+        
+        result = self._downloader.download(url, format_id=format_id, audio_only=audio_only)
         
         # Update UI from main thread
         self._root.after(0, lambda: self._on_download_complete(result))
