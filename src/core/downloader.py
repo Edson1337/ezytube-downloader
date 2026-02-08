@@ -314,19 +314,19 @@ class YouTubeDownloader:
         if audio_only:
             opts['format'] = 'bestaudio/best'
             opts['writethumbnail'] = True
+            # Convert thumbnail to jpg BEFORE extracting audio
             opts['postprocessors'] = [
+                {
+                    'key': 'FFmpegThumbnailsConvertor',
+                    'format': 'jpg',
+                },
                 {
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 },
                 {
-                    'key': 'FFmpegThumbnailsConvertor',
-                    'format': 'jpg',
-                },
-                {
                     'key': 'EmbedThumbnail',
-                    'already_have_thumbnail': False,
                 },
                 {
                     'key': 'FFmpegMetadata',
@@ -362,7 +362,68 @@ class YouTubeDownloader:
             filepath = data.get('filepath') or info_dict.get('filepath', '')
             
             if filepath and os.path.exists(filepath):
+                # Try to embed thumbnail for MP3 files using mutagen
+                if filepath.lower().endswith('.mp3'):
+                    self._embed_mp3_thumbnail(filepath, info_dict)
+                
                 self._video_complete_callback(title, url, filepath)
+    
+    def _embed_mp3_thumbnail(self, mp3_path: str, info_dict: dict) -> None:
+        """Embed thumbnail in MP3 file using mutagen."""
+        try:
+            from mutagen.mp3 import MP3
+            from mutagen.id3 import ID3, APIC, ID3NoHeaderError
+            
+            # Find thumbnail file (yt-dlp saves it alongside the audio)
+            base_path = os.path.splitext(mp3_path)[0]
+            thumb_path = None
+            
+            for ext in ['.jpg', '.jpeg', '.png', '.webp']:
+                potential_thumb = base_path + ext
+                if os.path.exists(potential_thumb):
+                    thumb_path = potential_thumb
+                    break
+            
+            if not thumb_path:
+                return
+            
+            # Read thumbnail
+            with open(thumb_path, 'rb') as f:
+                thumb_data = f.read()
+            
+            # Determine MIME type
+            if thumb_path.lower().endswith('.png'):
+                mime_type = 'image/png'
+            else:
+                mime_type = 'image/jpeg'
+            
+            # Add to MP3
+            try:
+                audio = MP3(mp3_path, ID3=ID3)
+            except ID3NoHeaderError:
+                audio = MP3(mp3_path)
+                audio.add_tags()
+            
+            audio.tags.add(
+                APIC(
+                    encoding=3,  # UTF-8
+                    mime=mime_type,
+                    type=3,  # Cover (front)
+                    desc='Cover',
+                    data=thumb_data
+                )
+            )
+            audio.save()
+            
+            # Remove thumbnail file after embedding
+            try:
+                os.remove(thumb_path)
+            except Exception:
+                pass
+                
+        except Exception as e:
+            # Silently fail - thumbnail embedding is not critical
+            pass
     
     def _on_progress(self, data: dict) -> None:
         """Internal progress hook that delegates to the callback."""
