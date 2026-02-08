@@ -359,7 +359,8 @@ class MainWindow:
         # Create downloader to check for existing file
         self._downloader = YouTubeDownloader(
             output_dir=self._output_dir,
-            progress_callback=self._on_progress
+            progress_callback=self._on_progress,
+            video_complete_callback=self._on_video_complete
         )
         
         # Check if video already exists
@@ -450,6 +451,19 @@ class MainWindow:
         
         # Schedule UI update on main thread
         self._root.after(0, lambda: self._update_progress_ui(pct, status, speed, eta))
+    
+    def _on_video_complete(self, title: str, url: str, file_path: str):
+        """Handle individual video completion (for playlists)."""
+        # Add to history and refresh panel on main thread
+        def add_to_history():
+            self._history.add_entry(
+                title=title,
+                url=url,
+                file_path=file_path
+            )
+            self._history_panel.refresh()
+        
+        self._root.after(0, add_to_history)
     
     def _update_progress_ui(self, percentage: float, status: str, speed: str, eta: str):
         """Update progress UI elements with explicit parameters."""

@@ -24,27 +24,32 @@ def strip_ansi_codes(text: Optional[str]) -> Optional[str]:
 
 
 ProgressCallback = Callable[[DownloadProgress], None]
+VideoCompleteCallback = Callable[[str, str, str], None]  # title, url, file_path
 
 
 class YouTubeDownloader:
     """
     Service class for downloading YouTube videos.
     
-    This class encapsulates all download logic and provides a clean interface
-    for the UI layer, following the Dependency Inversion Principle.
+    Handles all interaction with yt-dlp library and provides a clean interface
+    for downloading videos with progress tracking.
     """
     
-    def __init__(self, output_dir: str, progress_callback: Optional[ProgressCallback] = None):
+    def __init__(self, output_dir: str, progress_callback: Optional[ProgressCallback] = None,
+                 video_complete_callback: Optional[VideoCompleteCallback] = None):
         """
-        Initialize the downloader with output directory and optional progress callback.
+        Initialize the downloader with output directory and optional callbacks.
         
         Args:
             output_dir: Directory where downloaded videos will be saved.
             progress_callback: Optional callback function for progress updates.
+            video_complete_callback: Optional callback for when each video completes (for playlists).
         """
         self._output_dir = output_dir
         self._progress_callback = progress_callback
+        self._video_complete_callback = video_complete_callback
         self._current_title: Optional[str] = None
+        self._current_url: Optional[str] = None
         self._noplaylist = True  # Default: download single video only
         self._cancelled = False
         self._temp_files: list[str] = []  # Track temp files for cleanup
@@ -118,22 +123,21 @@ class YouTubeDownloader:
             except Exception:
                 pass
         
-        # Also clean any .part files and temp files in output dir
-        if self._current_title:
-            patterns = [
-                os.path.join(self._output_dir, f"{self._current_title}*.part"),
-                os.path.join(self._output_dir, f"{self._current_title}*.ytdl"),
-                os.path.join(self._output_dir, f"{self._current_title}*.temp"),
-                os.path.join(self._output_dir, f"{self._current_title}*.f*.mp4"),
-                os.path.join(self._output_dir, f"{self._current_title}*.f*.webm"),
-                os.path.join(self._output_dir, f"{self._current_title}*.f*.m4a"),
-            ]
-            for pattern in patterns:
-                for f in glob.glob(pattern):
-                    try:
-                        os.remove(f)
-                    except Exception:
-                        pass
+        # Clean ALL temp files in output dir (for playlists, current_title may not match)
+        temp_patterns = [
+            os.path.join(self._output_dir, "*.part"),
+            os.path.join(self._output_dir, "*.ytdl"),
+            os.path.join(self._output_dir, "*.temp"),
+            os.path.join(self._output_dir, "*.f*.mp4"),
+            os.path.join(self._output_dir, "*.f*.webm"),
+            os.path.join(self._output_dir, "*.f*.m4a"),
+        ]
+        for pattern in temp_patterns:
+            for f in glob.glob(pattern):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
         
         self._temp_files.clear()
     
@@ -321,10 +325,28 @@ class YouTubeDownloader:
                 'preferedformat': 'mp4'
             }]
         
+        # Add postprocessor hook for per-video callbacks
+        opts['postprocessor_hooks'] = [self._on_postprocess]
+        
         return opts
+    
+    def _on_postprocess(self, data: dict) -> None:
+        """Postprocessor hook called when video processing is complete."""
+        if data.get('status') == 'finished' and self._video_complete_callback:
+            info_dict = data.get('info_dict', {})
+            title = info_dict.get('title', 'Unknown')
+            url = info_dict.get('webpage_url', self._current_url or '')
+            filepath = data.get('filepath') or info_dict.get('filepath', '')
+            
+            if filepath and os.path.exists(filepath):
+                self._video_complete_callback(title, url, filepath)
     
     def _on_progress(self, data: dict) -> None:
         """Internal progress hook that delegates to the callback."""
+        # Check for cancellation and raise to interrupt yt-dlp
+        if self._cancelled:
+            raise yt_dlp.utils.DownloadError("Download cancelado")
+        
         if self._progress_callback is None:
             return
             
