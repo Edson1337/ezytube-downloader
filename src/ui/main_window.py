@@ -213,6 +213,21 @@ class MainWindow:
         )
         self._playlist_check.pack(side=tk.LEFT)
         
+        # Audio-only checkbox
+        self._audio_only_var = tk.BooleanVar(value=False)
+        self._audio_only_check = tk.Checkbutton(
+            settings_row,
+            text="Apenas audio (MP3)",
+            variable=self._audio_only_var,
+            bg=COLORS.BG_PRIMARY,
+            fg=COLORS.TEXT_SECONDARY,
+            selectcolor=COLORS.BG_TERTIARY,
+            activebackground=COLORS.BG_PRIMARY,
+            activeforeground=COLORS.TEXT_PRIMARY,
+            font=(FONTS.FAMILY, FONTS.SIZE_BODY)
+        )
+        self._audio_only_check.pack(side=tk.LEFT, padx=(SPACING.PADDING_MEDIUM, 0))
+        
         # Download button
         btn_frame = tk.Frame(container, bg=COLORS.BG_PRIMARY)
         btn_frame.pack(fill=tk.X, pady=SPACING.PADDING_LARGE)
@@ -429,7 +444,9 @@ class MainWindow:
         
         if self._selected_format:
             format_id = self._selected_format.format_id
-            audio_only = not self._selected_format.has_video
+        
+        # Check audio-only setting from checkbox
+        audio_only = self._audio_only_var.get()
         
         # Check playlist setting
         if self._playlist_var.get():

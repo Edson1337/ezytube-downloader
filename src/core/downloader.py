@@ -313,11 +313,25 @@ class YouTubeDownloader:
         
         if audio_only:
             opts['format'] = 'bestaudio/best'
-            opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }]
+            opts['writethumbnail'] = True
+            opts['postprocessors'] = [
+                {
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                },
+                {
+                    'key': 'FFmpegThumbnailsConvertor',
+                    'format': 'jpg',
+                },
+                {
+                    'key': 'EmbedThumbnail',
+                    'already_have_thumbnail': False,
+                },
+                {
+                    'key': 'FFmpegMetadata',
+                }
+            ]
         else:
             opts['merge_output_format'] = 'mp4'
             opts['writethumbnail'] = True

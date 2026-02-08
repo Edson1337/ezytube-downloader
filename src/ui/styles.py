@@ -80,7 +80,7 @@ class Spacing:
     BUTTON_HEIGHT = 40
     INPUT_HEIGHT = 40
     
-    WINDOW_WIDTH = 900
+    WINDOW_WIDTH = 1000
     WINDOW_HEIGHT = 650
 
 

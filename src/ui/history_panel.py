@@ -239,14 +239,23 @@ class HistoryPanel(tk.Frame):
         entry_frame = tk.Frame(parent, bg=COLORS.BG_SECONDARY)
         entry_frame.pack(fill=tk.X, pady=1)
         
-        # Video title (truncated)
+        # Video title (truncated) with extension badge
         title = entry.title
-        if len(title) > 35:
-            title = title[:32] + "..."
+        if len(title) > 30:
+            title = title[:27] + "..."
+        
+        # Get file extension and icon
+        ext = os.path.splitext(entry.file_path)[1].lower() if entry.file_path else ""
+        if ext == ".mp3":
+            icon = "🎵"
+            ext_badge = "[MP3]"
+        else:
+            icon = "🎬"
+            ext_badge = "[MP4]"
         
         title_label = tk.Label(
             entry_frame,
-            text=f"🎬 {title}",
+            text=f"{icon} {title} {ext_badge}",
             font=(FONTS.FAMILY, 9),
             bg=COLORS.BG_SECONDARY,
             fg=COLORS.TEXT_SECONDARY,
