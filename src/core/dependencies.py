@@ -9,6 +9,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import urllib.request
 import zipfile
 import tempfile
@@ -17,8 +18,15 @@ from typing import Optional, Callable
 
 def get_app_bin_dir() -> str:
     """Get the bin directory inside the app folder."""
-    current_file = os.path.abspath(__file__)
-    app_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+    # Check if running as a PyInstaller bundle
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable - use the executable's directory
+        app_root = os.path.dirname(sys.executable)
+    else:
+        # Running as script - use the file's directory structure
+        current_file = os.path.abspath(__file__)
+        app_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+    
     bin_dir = os.path.join(app_root, 'bin')
     os.makedirs(bin_dir, exist_ok=True)
     return bin_dir
