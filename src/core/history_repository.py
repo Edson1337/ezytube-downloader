@@ -98,6 +98,17 @@ class DownloadHistory:
         self._entries = [e for e in self._entries if e.file_path != file_path]
         self._save()
     
+    def validate_entries(self) -> int:
+        """Remove entries for files that no longer exist. Returns count of removed entries."""
+        original_count = len(self._entries)
+        self._entries = [e for e in self._entries if os.path.exists(e.file_path)]
+        removed_count = original_count - len(self._entries)
+        
+        if removed_count > 0:
+            self._save()
+        
+        return removed_count
+    
     def clear(self):
         """Clear all history."""
         self._entries = []

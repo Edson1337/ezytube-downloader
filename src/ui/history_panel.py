@@ -158,6 +158,9 @@ class HistoryPanel(tk.Frame):
     
     def refresh(self):
         """Refresh the history display."""
+        # Validate entries - remove those for files that no longer exist
+        self._history.validate_entries()
+        
         # Clear existing widgets in scrollable frame
         for widget in self._scrollable_frame.winfo_children():
             widget.destroy()
