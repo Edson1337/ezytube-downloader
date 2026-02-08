@@ -50,6 +50,29 @@ def find_ffmpeg() -> Optional[str]:
     if ffmpeg_path:
         return ffmpeg_path
     
+    # Check common installation paths as fallback
+    common_paths = []
+    if platform.system() == 'Windows':
+        local_app_data = os.environ.get('LocalAppData', '')
+        common_paths = [
+            os.path.join(os.environ.get('ProgramFiles', r'C:\Program Files'), 'ffmpeg', 'bin', 'ffmpeg.exe'),
+            os.path.join(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'), 'ffmpeg', 'bin', 'ffmpeg.exe'),
+            r'C:\ffmpeg\bin\ffmpeg.exe',
+        ]
+        if local_app_data:
+            common_paths.append(os.path.join(local_app_data, 'ffmpeg', 'bin', 'ffmpeg.exe'))
+    else:
+        common_paths = [
+            '/usr/bin/ffmpeg',
+            '/usr/local/bin/ffmpeg',
+            '/snap/bin/ffmpeg',
+            os.path.expanduser('~/.local/bin/ffmpeg'),
+        ]
+    
+    for path in common_paths:
+        if path and os.path.isfile(path):
+            return path
+    
     return None
 
 
@@ -60,10 +83,20 @@ def is_ffmpeg_installed() -> bool:
         return False
     
     try:
+        # Build subprocess kwargs for compatibility with windowed/frozen apps
+        kwargs = {
+            'capture_output': True,
+            'timeout': 15,
+            'stdin': subprocess.DEVNULL,
+        }
+        # On Windows, prevent a console window from appearing in GUI mode
+        if platform.system() == 'Windows':
+            CREATE_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+            kwargs['creationflags'] = CREATE_NO_WINDOW
+        
         result = subprocess.run(
             [ffmpeg_path, '-version'],
-            capture_output=True,
-            timeout=5
+            **kwargs
         )
         return result.returncode == 0
     except Exception:
