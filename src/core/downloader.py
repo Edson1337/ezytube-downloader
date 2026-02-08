@@ -12,7 +12,7 @@ from typing import Callable, Optional
 import yt_dlp
 
 from .file_utils import sanitize_filename
-from ..models import DownloadProgress, DownloadResult
+from ..models import DownloadProgress, DownloadResult, VideoFormat
 
 
 def strip_ansi_codes(text: Optional[str]) -> Optional[str]:
@@ -45,6 +45,7 @@ class YouTubeDownloader:
         self._output_dir = output_dir
         self._progress_callback = progress_callback
         self._current_title: Optional[str] = None
+        self._noplaylist = True  # Default: download single video only
     
     @property
     def output_dir(self) -> str:
@@ -98,12 +99,87 @@ class YouTubeDownloader:
             return expected_path
         return None
     
-    def download(self, url: str) -> DownloadResult:
+    def get_available_formats(self, url: str) -> list[VideoFormat]:
+        """
+        Get available video/audio formats for a URL.
+        
+        Args:
+            url: The YouTube video URL.
+            
+        Returns:
+            List of VideoFormat objects with available resolutions.
+        """
+        formats = []
+        
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'noplaylist': True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                
+                # Add "Best available" option first
+                formats.append(VideoFormat(
+                    format_id='best',
+                    resolution='Melhor disponivel',
+                    ext='mp4',
+                    description='Melhor qualidade de video + audio'
+                ))
+                
+                # Collect unique resolutions
+                seen_resolutions = set()
+                available_formats = info.get('formats', [])
+                
+                for fmt in available_formats:
+                    height = fmt.get('height')
+                    if not height or height in seen_resolutions:
+                        continue
+                    
+                    # Only include common resolutions
+                    if height not in [2160, 1440, 1080, 720, 480, 360]:
+                        continue
+                    
+                    seen_resolutions.add(height)
+                    resolution = f"{height}p"
+                    
+                    formats.append(VideoFormat(
+                        format_id=f'bestvideo[height<={height}]+bestaudio/best[height<={height}]',
+                        resolution=resolution,
+                        ext='mp4',
+                        filesize=fmt.get('filesize'),
+                        description=f'Video {resolution}'
+                    ))
+                
+                # Sort by resolution (descending)
+                formats[1:] = sorted(formats[1:], key=lambda f: int(f.resolution.replace('p', '')), reverse=True)
+                
+                # Add audio-only option at the end
+                formats.append(VideoFormat(
+                    format_id='bestaudio/best',
+                    resolution='Apenas audio',
+                    ext='mp3',
+                    has_video=False,
+                    description='MP3 audio'
+                ))
+                
+        except Exception:
+            # Return default options on error
+            formats = [
+                VideoFormat(format_id='best', resolution='Melhor disponivel', ext='mp4'),
+            ]
+        
+        return formats
+    
+    def download(self, url: str, format_id: str = 'best', audio_only: bool = False) -> DownloadResult:
         """
         Download a video from the given YouTube URL.
         
         Args:
             url: The YouTube video URL.
+            format_id: The format string to download (default: 'best')
+            audio_only: If True, download only audio as MP3.
             
         Returns:
             DownloadResult with success status, file path, and any error message.
@@ -111,7 +187,7 @@ class YouTubeDownloader:
         try:
             os.makedirs(self._output_dir, exist_ok=True)
             
-            ydl_opts = self._build_options()
+            ydl_opts = self._build_options(format_id, audio_only)
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info_dict = ydl.extract_info(url, download=True)
@@ -138,22 +214,40 @@ class YouTubeDownloader:
                 error_message=str(e)
             )
     
-    def _build_options(self) -> dict:
+    def _build_options(self, format_id: str = 'best', audio_only: bool = False) -> dict:
         """Build yt-dlp options dictionary."""
-        return {
-            'format': 'bestvideo+bestaudio/best',
+        
+        # Determine format string
+        if format_id == 'best':
+            format_str = 'bestvideo+bestaudio/best'
+        else:
+            format_str = format_id
+        
+        opts = {
+            'format': format_str,
             'outtmpl': os.path.join(self._output_dir, '%(title)s.%(ext)s'),
-            'merge_output_format': 'mp4',
-            'noplaylist': True,  # Download only the video, not the playlist
-            'postprocessors': [{
-                'key': 'FFmpegVideoConvertor',
-                'preferedformat': 'mp4'
-            }],
+            'noplaylist': self._noplaylist,
             'quiet': False,
             'no_warnings': False,
             'noprogress': True,
             'progress_hooks': [self._on_progress],
         }
+        
+        if audio_only:
+            opts['format'] = 'bestaudio/best'
+            opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }]
+        else:
+            opts['merge_output_format'] = 'mp4'
+            opts['postprocessors'] = [{
+                'key': 'FFmpegVideoConvertor',
+                'preferedformat': 'mp4'
+            }]
+        
+        return opts
     
     def _on_progress(self, data: dict) -> None:
         """Internal progress hook that delegates to the callback."""
